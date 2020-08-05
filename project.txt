@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:validation="http://www.mulesoft.org/schema/mule/validation" xmlns:batch="http://www.mulesoft.org/schema/mule/batch"
+	xmlns:db="http://www.mulesoft.org/schema/mule/db"
+	xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core" xmlns:http="http://www.mulesoft.org/schema/mule/http" xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd
+http://www.mulesoft.org/schema/mule/db http://www.mulesoft.org/schema/mule/db/current/mule-db.xsd
+http://www.mulesoft.org/schema/mule/batch http://www.mulesoft.org/schema/mule/batch/current/mule-batch.xsd
+http://www.mulesoft.org/schema/mule/validation http://www.mulesoft.org/schema/mule/validation/current/mule-validation.xsd">
+	<http:listener-config name="HTTP_Listener_config" doc:name="HTTP Listener config" doc:id="4ae50c47-761c-4a0c-9089-2c29ad6e27b8" >
+		<http:listener-connection host="0.0.0.0" port="8081" />
+	</http:listener-config>
+	<http:request-config name="HTTP_Request_configuration" doc:name="HTTP Request configuration" doc:id="58fb63df-bd1d-4bb9-b32e-72e79fa7dfd2" basePath="/api" >
+		<http:request-connection host="apilayer.net" />
+	</http:request-config>
+	<db:config name="Database_Config" doc:name="Database Config" doc:id="7b7f613c-7911-41b3-9695-54bac7c755b5" >
+		<db:my-sql-connection host="localhost" port="3306" user="root" password="system" />
+	</db:config>
+	<validation:config name="Validation_Config" doc:name="Validation Config" doc:id="cc4aab05-a89a-4366-a971-bc167e5e3efb" />
+	<flow name="champsphoneverifFlow" doc:id="57d301cc-eba7-4e1c-afa6-c063f9a7a4bf" >
+		<http:listener doc:name="Listener" doc:id="8c694ddc-ecf1-45d2-9868-35ced93b12c7" config-ref="HTTP_Listener_config" path="phone"/>
+		<batch:job jobName="champsphoneverifBatch_Job" doc:id="9102e175-92ca-49f0-a394-8b7074067b69" maxFailedRecords="100">
+			<batch:process-records >
+				<batch:step name="Batch_Step" doc:id="6bb08d29-4386-4c2b-8507-d66a3d8836e5" >
+					<ee:transform doc:name="Transform Message" doc:id="6fe43a78-14c6-4ca4-b203-e41612f09377">
+			<ee:message>
+			</ee:message>
+			<ee:variables>
+				<ee:set-variable variableName="phoneNumbers"><![CDATA[%dw 2.0
+output application/java
+---
+payload.phoneNumber]]></ee:set-variable>
+				<ee:set-variable variableName="orginalPayload"><![CDATA[%dw 2.0
+output application/json
+---
+payload]]></ee:set-variable>
+			</ee:variables>
+		</ee:transform>
+					<validation:matches-regex doc:name="Matches regex" doc:id="1d3e9dec-7de3-4bcf-bfff-0263b25e88bb" config-ref="Validation_Config" value="#[payload.phoneNumber]" regex="^[+ | 0-9]{12 | 13}$"/>
+					<http:request method="GET" doc:name="Request" doc:id="c6f481d1-9337-4aef-ba4f-0967d06392c3" config-ref="HTTP_Request_configuration" path="/validate">
+			<http:query-params><![CDATA[#[output application/java
+---
+{
+	"access_key" : "22abfae7efd206a98c70f9ef26021a8a",
+	"number" : vars.phoneNumbers
+}]]]></http:query-params>
+		</http:request>
+					<choice doc:name="Choice" doc:id="822c585c-df8c-4795-837f-ec20163b93ea">
+			<when expression="#[payload.valid == true]">
+				<db:insert doc:name="Insert" doc:id="fd34b499-0499-4a7a-a452-1fff7065497f" config-ref="Database_Config">
+					<db:sql><![CDATA[insert into phonedirectory.customer_data(id, first_name, last_name, email, phoneNumber) values (:id, :first_name, :last_name, :email, :phoneNumber)]]></db:sql>
+					<db:input-parameters><![CDATA[#[{"id": vars.orginalPayload.id,
+ "first_name": vars.orginalPayload.first_name,
+ "last_name": vars.orginalPayload.last_name,
+ "email": vars.orginalPayload.email,
+ "phoneNumber": vars.orginalPayload.phoneNumber
+ }]]]></db:input-parameters>
+				</db:insert>
+				<logger level="INFO" doc:name="Logger" doc:id="70fd047f-6ac9-4de5-a298-2d1e081a1320" message="#[payload]" />
+			</when>
+			<otherwise>
+				<logger level="INFO" doc:name="Logger" doc:id="a8b2a44b-cb83-44dc-ab48-4de7318c0419" message="#[payload]" />
+			</otherwise>
+		</choice>
+				</batch:step>
+			</batch:process-records>
+		</batch:job>
+	</flow>
+</mule>
